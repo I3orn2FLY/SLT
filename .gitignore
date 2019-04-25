@@ -1,6 +1,8 @@
 *.idea*
 *.zip
+*completed_images.txt
 *.pt
+*.pyc
 *.pdf
 *ipynb_checkpoints*
 */Supplementary/*
