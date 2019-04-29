@@ -1,7 +1,9 @@
 *.idea*
 *.zip
-*completed_images.txt
+*image_files.txt
+*current_idx.txt
 *.pt
+sandbox.py
 *.pyc
 *.pdf
 *ipynb_checkpoints*

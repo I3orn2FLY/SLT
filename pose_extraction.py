@@ -10,75 +10,90 @@ import cv2
 sys.path.append(os.path.join(OPENPOSE_FOLDER, "build/python"))
 from openpose import pyopenpose as op
 
-if __name__ == "__main__":
-    pose_data_folder = os.path.join(PHEONIX_FOLDER, "open_pose")
-    images_folder = os.path.join(PHEONIX_FOLDER, "features")
+pose_data_folder = os.path.join(PHEONIX_FOLDER, "open_pose")
+images_folder = os.path.join(PHEONIX_FOLDER, "features")
 
+
+class PoseEstimator():
+    def __init__(self, hand=True, face=True):
+        params = dict()
+        params["model_folder"] = os.path.join(OPENPOSE_FOLDER, "models")
+        params["face"] = hand
+        params["hand"] = face
+        self.opWrapper = op.WrapperPython()
+        self.opWrapper.configure(params)
+        self.opWrapper.start()
+
+    def estimate_pose(self, filename):
+        datum = op.Datum()
+        imageToProcess = cv2.imread(filename)
+        if not isinstance(imageToProcess, np.ndarray):
+            return None
+        datum.cvInputData = imageToProcess
+        self.opWrapper.emplaceAndPop([datum])
+
+        return datum
+
+
+def create_folders(image_files):
+    for idx, filename in enumerate(image_files):
+        filename = os.path.join(pose_data_folder, filename)
+        path = os.path.split(filename)[0]
+        if not os.path.exists(path):
+            os.makedirs(path)
+
+        if idx % 10000 == 0:
+            print("\r %d" % idx, end=" ")
+
+
+def create_image_files():
     ls = glob.iglob(images_folder + "/**/*.*", recursive=True)
-
-    create_folders = False
-
-    if create_folders:
+    with open('images_file.txt', 'w') as f:
         for idx, filename in enumerate(ls):
-            filename = filename.replace(images_folder, pose_data_folder)
-            path = os.path.split(filename)[0]
-            if not os.path.exists(path):
-                os.makedirs(path)
+            shortened_name = filename.split("features/")[1]
+            f.write(shortened_name + "\n")
 
-            if idx % 10000 == 0:
-                print("\r %d" % idx, end=" ")
-
-    L = 1890000
+    with open('current_idx.txt', 'w') as f:
+        f.write(str(-1))
 
 
+if __name__ == "__main__":
 
-    with open('completed_images.txt', 'r') as f:
-        completed_images = f.readlines()
+    folders_created = True
+    image_files_created = True
 
-    completed_images = [x.strip() for x in completed_images]
+    if not image_files_created: create_image_files()
 
-    completed_images_file = open('completed_images.txt', 'a')
+    with open('image_files.txt', 'r') as f:
+        image_files = [x.strip() for x in f.readlines()]
 
-    params = dict()
-    params["model_folder"] = os.path.join(OPENPOSE_FOLDER, "models")
-    params["face"] = True
-    params["hand"] = True
+    if not folders_created: create_folders(image_files)
 
-    opWrapper = op.WrapperPython()
-    opWrapper.configure(params)
-    opWrapper.start()
+    L = len(image_files)
 
-    try:
+    with open('current_idx.txt', 'r') as f:
+        cur_idx = int(f.readline())
 
-        for idx, filename in enumerate(ls):
-            if filename in completed_images:
-                continue
+    pose_estim = PoseEstimator()
 
-            datum = op.Datum()
-            imageToProcess = cv2.imread(filename)
-            if not isinstance(imageToProcess, np.ndarray):
-                continue
-            datum.cvInputData = imageToProcess
-            opWrapper.emplaceAndPop([datum])
+    for idx, filename in enumerate(image_files[cur_idx + 1:]):
+        idx = idx + cur_idx + 1
+        image_filename = os.path.join(images_folder, filename)
+        pose_filename = os.path.splitext(os.path.join(pose_data_folder, filename))[0] + "_pose.pkl"
+        datum = pose_estim.estimate_pose(image_filename)
+        if datum is None: continue
+        with open(pose_filename, 'wb') as f:
+            pose_data = {"body": datum.poseKeypoints,
+                         "face": datum.faceKeypoints,
+                         "left_hand": datum.handKeypoints[0],
+                         "right_hand": datum.handKeypoints[1]}
 
-            file, ext = os.path.splitext(filename.replace(images_folder, pose_data_folder))
-            pose_file = file + "_pose.pkl"
+            pickle.dump(pose_data, f)
 
+        with open('current_idx.txt', 'w') as f:
+            f.write(str(idx))
 
-            with open(pose_file, 'wb') as f:
-                pose_data = {"body": datum.poseKeypoints,
-                             "face": datum.faceKeypoints,
-                             "left_hand": datum.handKeypoints[0],
-                             "right_hand": datum.handKeypoints[1]}
-
-                pickle.dump(pose_data, f)
-
-
-            completed_images_file.write(filename + "\n")
-            if idx % 100 == 0:
-                print("\r %.2f" % (idx * 100 / L), end=" ")
-
-    except:
-        completed_images_file.close()
+        if idx % 100 == 0:
+            print("\r %.2f" % (idx * 100 / L), end=" ")
 
     print()
