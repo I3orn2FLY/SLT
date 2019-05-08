@@ -62,9 +62,6 @@ if __name__ == "__main__":
     folders_created = True
     image_files_created = True
 
-    if len(sys.argv) > 1:
-        pose_data_folder = pose_data_folder.replace("kenny", "nurobot427")
-        images_folder = images_folder.replace("kenny", "nurobot427")
 
     if not image_files_created: create_image_files()
 
