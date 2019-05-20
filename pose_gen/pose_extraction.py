@@ -62,7 +62,6 @@ if __name__ == "__main__":
     folders_created = True
     image_files_created = True
 
-
     if not image_files_created: create_image_files()
 
     with open('image_files.txt', 'r') as f:
