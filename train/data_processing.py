@@ -81,20 +81,22 @@ class PheonixDataset():
         self.features = []
         self.vocab = vocab
 
-    def generate_dataset(self, datapath="/home/kenny/Workspace/Data/SLT", side=227, split="train"):
+    def generate_dataset(self, datapath="/home/kenny/Workspace/Data/SLT", side=227, with_face=False, split="train",
+                         max_input_length=300, max_out_length=50):
         filename = datapath + "/manual/PHOENIX-2014-T." + split + ".corpus.csv"
 
         df = pd.read_csv(filename, sep="|")
         prefix = datapath + "/open_pose/fullFrame-" + str(side) + "x" + str(side) + "px/" + split + "/"
         spacy_de = spacy.load("de")
 
+        feat_len = 250 if with_face else 110
+
         for idx in range(df.shape[0]):
             row = df.iloc[idx]
 
             tokens = [tok.lower_ for tok in spacy_de.tokenizer(row.translation)]
-            nums = self.vocab.sentence_to_num(tokens, 50)
+            nums = self.vocab.sentence_to_num(tokens, max_out_length)
             if nums is None: continue
-            self.targets.append(nums)
 
             path = prefix + row.video
             path = path.replace("1/*.png", "*.pkl")
@@ -104,11 +106,23 @@ class PheonixDataset():
                 with open(pose_filename, 'rb') as f:
                     pose_data = pickle.load(f)
 
-                    face = pose_data['face'].reshape(-1)
-                    body = pose_data['body'].reshape(-1)
-                    lhand = pose_data['left_hand'].reshape(-1)
-                    rhand = pose_data['right_hand'].reshape(-1)
-                    pose = np.hstack((face, body, lhand, rhand))
+                    body_idxs = list(range(9)) + list(range(15, 19))
+                    body = pose_data['body']
+
+                    if body.shape[0] > 1 or body.shape[0] < 1:
+                        continue
+
+                    body = body.squeeze()[body_idxs]
+                    lhand = pose_data['left_hand'].squeeze()
+                    rhand = pose_data['right_hand'].squeeze()
+
+                    pose = np.vstack((body, lhand, rhand))
+                    if with_face:
+                        face = pose_data['face'].squeeze()
+                        pose = np.vstack((face, pose))
+                    pose = pose[:, :2] / side
+
+                    pose = pose.reshape(-1)
 
                     pose_filename = os.path.split(pose_filename)[-1]
                     frame_n = int(re.findall(r'([0-9]+)', pose_filename)[-1])
@@ -117,8 +131,17 @@ class PheonixDataset():
                     frame_nums.append(frame_n)
 
             video_pose = np.array(video_pose)
+
+            if video_pose.shape[0] == 0 or video_pose.shape[0] > max_input_length: continue
             video_pose = video_pose[np.argsort(frame_nums)]
 
+            left_over = max_input_length - video_pose.shape[0]
+
+            if left_over > 0:
+                padding = -1 * np.ones((left_over, feat_len))
+                video_pose = np.vstack((video_pose, padding))
+
+            self.targets.append(nums)
             self.features.append(video_pose)
 
             if idx % 50 == 0:
@@ -130,9 +153,11 @@ class PheonixDataset():
         print(len(self.targets))
 
     def process_features(self):
-        n_frames = pd.Series([len(feature) for feature in self.features])
-        val_counts = n_frames.value_counts()
-        pass
+        X = np.array(self.features)
+        y = np.array(self.targets)
+
+        print(X.shape)
+        print(y.shape)
 
     def save_base(self, filename="../vars/base.pkl"):
         with open(filename, "wb") as f:
@@ -140,17 +165,16 @@ class PheonixDataset():
 
 
 if __name__ == "__main__":
-    # with open("../vars/vocab.pkl", "rb") as f:
-    #     vocab = pickle.load(f)
+    with open("../vars/vocab.pkl", "rb") as f:
+        vocab = pickle.load(f)
 
-    with open("../vars/base.pkl", "rb") as f:
-        dataset = pickle.load(f)
-     # = PheonixDataset(vocab)
+    # with open("../vars/base.pkl", "rb") as f:
+    #     dataset = pickle.load(f)
+    dataset = PheonixDataset(vocab)
 
+    dataset.generate_dataset()
     dataset.process_features()
-    # dataset.generate_dataset()
-
-    # dataset.save_base()
+    dataset.save_base()
 
     # sentences = load_sentences(save=True)
     # vocab = Vocab(sentences)

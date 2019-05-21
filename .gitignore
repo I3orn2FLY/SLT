@@ -5,6 +5,7 @@
 *.pt
 sandbox.py
 *.pyc
+vars/*
 *.pdf
 *ipynb_checkpoints*
 */Supplementary/*
