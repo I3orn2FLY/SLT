@@ -53,6 +53,9 @@ class Vocab:
 
         return idxs
 
+    def num_to_sentence(self, nums):
+        return " ".join(self.itow[num] for num in nums)
+
     def plot_sent_lengths(self):
         print(self.sent_lengths.value_counts())
         pass
@@ -81,21 +84,24 @@ class PheonixDataset():
         self.features = []
         self.vocab = vocab
 
-    def generate_dataset(self, datapath="/home/kenny/Workspace/Data/SLT", side=227, with_face=False, split="train",
-                         max_input_length=300, max_out_length=50):
+    def generate_dataset(self, datapath="/home/kenny/Workspace/Data/SLT",
+                         side=227,
+                         with_face=False,
+                         split="train",
+                         input_seq_length=50,
+                         augment_factor=1,
+                         out_seq_length=50):
         filename = datapath + "/manual/PHOENIX-2014-T." + split + ".corpus.csv"
 
         df = pd.read_csv(filename, sep="|")
         prefix = datapath + "/open_pose/fullFrame-" + str(side) + "x" + str(side) + "px/" + split + "/"
         spacy_de = spacy.load("de")
 
-        feat_len = 250 if with_face else 110
-
         for idx in range(df.shape[0]):
             row = df.iloc[idx]
 
             tokens = [tok.lower_ for tok in spacy_de.tokenizer(row.translation)]
-            nums = self.vocab.sentence_to_num(tokens, max_out_length)
+            nums = self.vocab.sentence_to_num(tokens, out_seq_length)
             if nums is None: continue
 
             path = prefix + row.video
@@ -132,49 +138,61 @@ class PheonixDataset():
 
             video_pose = np.array(video_pose)
 
-            if video_pose.shape[0] == 0 or video_pose.shape[0] > max_input_length: continue
-            video_pose = video_pose[np.argsort(frame_nums)]
+            aug_samples = PheonixDataset.augment_sample(video_pose, augment_factor, input_seq_length)
 
-            left_over = max_input_length - video_pose.shape[0]
+            self.targets += len(aug_samples) * [nums]
+            self.features += aug_samples
 
-            if left_over > 0:
-                padding = -1 * np.ones((left_over, feat_len))
-                video_pose = np.vstack((video_pose, padding))
-
-            self.targets.append(nums)
-            self.features.append(video_pose)
-
-            if idx % 50 == 0:
+            if idx % 10 == 0:
                 percent = idx / df.shape[0] * 100
-                print("\rProgress ", percent, end=" ")
+                print("\rProgress %.2f" % percent, end=" ")
 
         print()
-        print(len(self.features))
         print(len(self.targets))
 
-    def process_features(self):
+    @staticmethod
+    def augment_sample(sample, aug_factor, seq_length):
+        aug = []
+        L = len(sample)
+
+        if (L < seq_length):
+            last_frame = sample[-1]
+            fill_frames = []
+            needed = seq_length - len(sample)
+            for i in range(needed):
+                fill_frames.append(last_frame.copy())
+
+            fill_frames = np.array(fill_frames)
+            aug.append(np.vstack((sample, fill_frames)))
+
+        else:
+            step = L // seq_length
+            left_over = L % seq_length
+            starting_idxs = list(range(step + left_over))
+            shuffle(starting_idxs)
+            for idx, start in enumerate(starting_idxs):
+                seq = [start + i * step for i in range(seq_length)]
+
+                aug.append(sample[seq])
+                if aug_factor <= idx + 1: break
+
+        return aug
+
+    def save_XY(self, path, split):
         X = np.array(self.features)
         y = np.array(self.targets)
-
-        print(X.shape)
-        print(y.shape)
-
-    def save_base(self, filename="../vars/base.pkl"):
-        with open(filename, "wb") as f:
-            pickle.dump(self, f)
+        np.save(os.path.join(path, "X_" + split), X)
+        np.save(os.path.join(path, "y_" + split), y)
 
 
 if __name__ == "__main__":
     with open("../vars/vocab.pkl", "rb") as f:
         vocab = pickle.load(f)
-
-    # with open("../vars/base.pkl", "rb") as f:
-    #     dataset = pickle.load(f)
+    split = "test"
+    aug_factor = 1
     dataset = PheonixDataset(vocab)
-
-    dataset.generate_dataset()
-    dataset.process_features()
-    dataset.save_base()
+    dataset.generate_dataset(split=split, augment_factor=aug_factor)
+    dataset.save_XY("../vars/", split=split)
 
     # sentences = load_sentences(save=True)
     # vocab = Vocab(sentences)
