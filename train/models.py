@@ -2,21 +2,22 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+import random
+import numpy as np
+import pickle
+from data_processing import Vocab
 
 
 class Encoder(nn.Module):
-    def __init__(self, input_dim, emb_dim, enc_hid_dim, dec_hid_dim, dropout):
+    def __init__(self, input_dim, enc_hid_dim, dec_hid_dim, dropout):
         super().__init__()
 
         self.input_dim = input_dim
-        self.emb_dim = emb_dim
         self.enc_hid_dim = enc_hid_dim
         self.dec_hid_dim = dec_hid_dim
         self.dropout = dropout
 
-        self.embedding = nn.Embedding(input_dim, emb_dim)
-
-        self.rnn = nn.GRU(emb_dim, enc_hid_dim, bidirectional=True)
+        self.rnn = nn.GRU(input_dim, enc_hid_dim, bidirectional=True)
 
         self.fc = nn.Linear(enc_hid_dim * 2, dec_hid_dim)
 
@@ -25,11 +26,9 @@ class Encoder(nn.Module):
     def forward(self, src):
         # src = [src sent len, batch size]
 
-        embedded = self.dropout(self.embedding(src))
-
         # embedded = [src sent len, batch size, emb dim]
 
-        outputs, hidden = self.rnn(embedded)
+        outputs, hidden = self.rnn(src)
 
         # outputs = [src sent len, batch size, hid dim * num directions]
         # hidden = [n layers * num directions, batch size, hid dim]
@@ -182,7 +181,7 @@ class Seq2Seq(nn.Module):
         self.decoder = decoder
         self.device = device
 
-    def forward(self, src, trg, teacher_forcing_ratio=0.5):
+    def forward(self, src, trg, teacher_forcing_ratio=0.5, beam_size=3):
         # src = [src sent len, batch size]
         # trg = [trg sent len, batch size]
         # teacher_forcing_ratio is probability to use teacher forcing
@@ -212,4 +211,35 @@ class Seq2Seq(nn.Module):
         return outputs
 
 
+if __name__ == "__main__":
+    batch_size = 256
+    X = np.load("../vars/X_dev.npy")[:batch_size].transpose([1, 0, 2])
+    y = np.load("../vars/y_dev.npy")[:batch_size].transpose()
 
+    with open("../vars/vocab.pkl", "rb") as f:
+        vocab = pickle.load(f)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    INPUT_DIM = 110
+    OUTPUT_DIM = len(vocab.itow)
+    DEC_EMB_DIM = 256
+    ENC_HID_DIM = 512
+    DEC_HID_DIM = 512
+    ENC_DROPOUT = 0.5
+    DEC_DROPOUT = 0.5
+
+    attn = Attention(ENC_HID_DIM, DEC_HID_DIM)
+    enc = Encoder(INPUT_DIM, ENC_HID_DIM, DEC_HID_DIM, ENC_DROPOUT)
+    dec = Decoder(OUTPUT_DIM, DEC_EMB_DIM, ENC_HID_DIM, DEC_HID_DIM, DEC_DROPOUT, attn)
+
+    model = Seq2Seq(enc, dec, device).to(device)
+
+    inp = torch.Tensor(X).to(device)
+    trg = torch.LongTensor(y).to(device)
+
+    out = model(inp, trg)
+
+    print(inp.shape)
+    print(out.shape)
+    print(trg.shape)
