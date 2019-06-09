@@ -6,6 +6,7 @@
 sandbox.py
 *.pyc
 vars/*
+weights/*
 *.pdf
 *ipynb_checkpoints*
 */Supplementary/*

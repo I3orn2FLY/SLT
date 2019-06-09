@@ -17,7 +17,7 @@ class Encoder(nn.Module):
         self.dec_hid_dim = dec_hid_dim
         self.dropout = dropout
 
-        self.rnn = nn.GRU(input_dim, enc_hid_dim, bidirectional=True)
+        self.rnn = nn.GRU(input_dim, enc_hid_dim, num_layers=1, bidirectional=True, dropout=dropout)
 
         self.fc = nn.Linear(enc_hid_dim * 2, dec_hid_dim)
 
@@ -181,7 +181,7 @@ class Seq2Seq(nn.Module):
         self.decoder = decoder
         self.device = device
 
-    def forward(self, src, trg, teacher_forcing_ratio=0.5, beam_size=3):
+    def forward(self, src, trg, teacher_forcing_ratio=0.5, beam_size=1):
         # src = [src sent len, batch size]
         # trg = [trg sent len, batch size]
         # teacher_forcing_ratio is probability to use teacher forcing
@@ -200,13 +200,55 @@ class Seq2Seq(nn.Module):
 
         # first input to the decoder is the <sos> tokens
         output = trg[0, :]
+        # outputs[output]
+        if beam_size == 1:
+            for t in range(1, max_len):
+                output, hidden = self.decoder(output, hidden, encoder_outputs)
+                outputs[t] = output
+                teacher_force = random.random() < teacher_forcing_ratio
+                top1 = output.max(1)[1]
+                output = (trg[t] if teacher_force else top1)
+        else:
 
-        for t in range(1, max_len):
-            output, hidden = self.decoder(output, hidden, encoder_outputs)
-            outputs[t] = output
-            teacher_force = random.random() < teacher_forcing_ratio
-            top1 = output.max(1)[1]
-            output = (trg[t] if teacher_force else top1)
+            for sample_idx in range(batch_size):
+                hidden_sample = hidden[sample_idx].unsqueeze(0)
+                encoder_sample = encoder_outputs[:, sample_idx, :].unsqueeze(1)
+                beams = torch.zeros(beam_size, max_len, dtype=torch.long).to(self.device)
+                beam_probs = torch.ones(beam_size)
+
+                for t in range(1, max_len):
+                    cands = torch.zeros(beam_size * beam_size).to(self.device)
+                    cands_probs = torch.ones(beam_size * beam_size).to(self.device)
+
+                    for beam_idx in range(beam_size):
+                        last = beams[beam_idx, t - 1].unsqueeze(0)
+                        output, hidden_sample = self.decoder(last, hidden_sample, encoder_sample)
+
+                        topk = output.topk(beam_size, dim=1)
+                        indices = topk[1]
+                        probs = topk[0]
+
+                        start = beam_idx * beam_size
+                        end = (beam_idx + 1) * beam_size
+                        cands[start:end] = indices
+                        cands_probs[start:end] = beam_probs[beam_idx] * probs
+
+                    topk_indices = cands_probs.topk(beam_size)[1]
+
+                    beams[:, t] = cands[topk_indices]
+                    beam_probs = cands_probs[topk_indices]
+                    beam_probs = beam_probs / beam_probs.norm()
+
+                out = torch.zeros(max_len, trg_vocab_size).to(self.device)
+                beam = beams[beam_probs.argmax()]
+                for t in range(max_len):
+                    out[t, beam[t]] = 1
+
+                outputs[:, sample_idx] = out
+
+                print("\rBeam Search Progress : %.2f" % (sample_idx / batch_size * 100), end=" ")
+
+            print()
 
         return outputs
 
@@ -238,7 +280,7 @@ if __name__ == "__main__":
     inp = torch.Tensor(X).to(device)
     trg = torch.LongTensor(y).to(device)
 
-    out = model(inp, trg)
+    out = model(inp, trg, 0, 3)
 
     print(inp.shape)
     print(out.shape)

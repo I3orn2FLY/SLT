@@ -8,6 +8,7 @@ import pickle
 from numpy.random import shuffle
 from data_processing import Vocab
 from nltk.translate.bleu_score import corpus_bleu
+import warnings
 
 
 # TODO: Implement Beam Search and apply Bleu-Score for evaluation
@@ -32,41 +33,73 @@ def get_tensor_batch(X, y, batch_idx, batch_size, device):
     return X_batch, y_batch
 
 
-def eval(model, src, trg, criterion):
+def get_bleu_score(trg, output, vocab):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        idx_sentences_hyp = torch.t(output.argmax(dim=2)).cpu().numpy()
+        idx_sentences_ref = torch.t(trg).cpu().numpy()
+
+        hypotheses = vocab.num_to_sentence_batch(idx_sentences_hyp)
+        references = vocab.num_to_sentence_batch(idx_sentences_ref)
+        references = [[sentence] for sentence in references]
+
+        return corpus_bleu(references, hypotheses)
+
+
+def eval(model, src, trg, criterion, vocab):
     model.eval()
 
     with torch.no_grad():
         src = torch.Tensor(src).to(model.device)
         trg = torch.LongTensor(trg).to(model.device)
-        output = model(src, trg, 0)
+
+        output = model(src, trg, 0, 1)
+
+        bleu = get_bleu_score(trg, output, vocab)
+
         output = output[1:].view(-1, output.shape[-1])
 
         trg = trg[1:].view(-1)
         loss = criterion(output, trg)
 
-    return loss.item()
+        return loss.item(), bleu
 
 
-def train(model, X_train, Y_train, X_val, y_val, learning_rate, criterion, batch_size, n_epochs, clip):
+def train(model, X_train, Y_train, X_val, y_val, X_test, Y_test, vocab, learning_rate, criterion, batch_size, n_epochs,
+          clip,
+          load=True, save=False):
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     device = model.device
     num_batches = X_train.shape[1] // batch_size
     if X_train.shape[1] % batch_size != 0: num_batches += 1
 
     train_loss = 0
+    train_bleu = 0
+    best_bleu = 0
 
-    best_loss = 10000
+    if load:
+        model.load_state_dict(torch.load('../weights/weights.pt'))
+        with open("../weights/best_bleu.txt", 'r') as f:
+            best_bleu = float(f.readline())
+            print("Best bleu:", best_bleu)
+
     for epoch in range(1, n_epochs + 1):
         model.train()
+
         for batch_idx in range(num_batches):
             src, trg = get_tensor_batch(X_train, Y_train, batch_idx, batch_size, device)
 
             optimizer.zero_grad()
 
             output = model(src, trg)
+            bleu = get_bleu_score(trg, output, vocab)
+
             output = output[1:].view(-1, output.shape[-1])
             trg = trg[1:].view(-1)
+
             loss = criterion(output, trg)
+
+            train_bleu += bleu
             loss.backward()
 
             torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
@@ -75,26 +108,43 @@ def train(model, X_train, Y_train, X_val, y_val, learning_rate, criterion, batch
 
             train_loss += loss.item()
 
-            print("\rBatch Progress:" + str(batch_idx) + "/" + str(num_batches), "Loss:", loss.item(), end=" ")
+            print("\rBatch Progress:" + str(batch_idx) + "/" + str(num_batches),
+                  "Loss:", loss.item(),
+                  "Bleu:", bleu, end=" ")
 
         train_loss = train_loss / num_batches
+        train_bleu = train_bleu / num_batches
 
-        val_loss = eval(model, X_val, y_val, criterion)
+        val_loss, val_bleu = eval(model, X_val, y_val, criterion, vocab)
+        test_loss, test_bleu = eval(model, X_test, y_test, criterion, vocab)
 
-        print("\rEpoch", epoch, "Train Loss: ", train_loss, "Val Loss: ", val_loss)
+        print("\rEpoch", epoch,
+              "Train Loss: ", train_loss,
+              "Val Loss: ", val_loss,
+              "Test Loss: ", test_loss,
+              "Train Bleu: ", train_bleu,
+              "Val Bleu:", val_bleu,
+              "Test Bleu:", test_bleu)
 
-        if val_loss < best_loss:
-            print("Saved weights")
-            best_loss = val_loss
-            torch.save(model.state_dict(), '../weights/weights.pt')
+        if val_bleu > best_bleu:
+
+            best_bleu = val_bleu
+            if save:
+                torch.save(model.state_dict(), "../weights/weights.pt")
+                with open("../weights/best_bleu.txt", 'w') as f:
+                    f.write(str(best_bleu))
+                print("Saved weights")
 
 
 if __name__ == "__main__":
-    X_train = np.load("../vars/X_train.npy").transpose([1, 0, 2])
-    y_train = np.load("../vars/y_train.npy").transpose()
+    X_train = np.load("../vars/X_train5.npy").transpose([1, 0, 2])
+    y_train = np.load("../vars/y_train5.npy").transpose()
 
     X_val = np.load("../vars/X_dev.npy").transpose([1, 0, 2])
     y_val = np.load("../vars/y_dev.npy").transpose()
+
+    X_test = np.load("../vars/X_test.npy").transpose([1, 0, 2])
+    y_test = np.load("../vars/y_test.npy").transpose()
 
     with open("../vars/vocab.pkl", "rb") as f:
         vocab = pickle.load(f)
@@ -111,6 +161,7 @@ if __name__ == "__main__":
 
     attn = Attention(ENC_HID_DIM, DEC_HID_DIM)
     enc = Encoder(INPUT_DIM, ENC_HID_DIM, DEC_HID_DIM, ENC_DROPOUT)
+
     dec = Decoder(OUTPUT_DIM, DEC_EMB_DIM, ENC_HID_DIM, DEC_HID_DIM, DEC_DROPOUT, attn)
 
     model = Seq2Seq(enc, dec, device).to(device)
@@ -119,6 +170,12 @@ if __name__ == "__main__":
 
     model.apply(init_weights)
 
-    # model.load_state_dict(torch.load('../weights/weights.pt'))
-    train(model, X_train, y_train, X_val, y_val, learning_rate=0.001, criterion=criterion, batch_size=256, n_epochs=100,
-          clip=10)
+    train(model, X_train, y_train, X_val, y_val, X_test, y_test,
+          vocab=vocab,
+          learning_rate=0.001,
+          criterion=criterion,
+          batch_size=32,
+          n_epochs=100,
+          clip=10,
+          load=True,
+          save=True)

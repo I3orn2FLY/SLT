@@ -54,7 +54,18 @@ class Vocab:
         return idxs
 
     def num_to_sentence(self, nums):
-        return " ".join(self.itow[num] for num in nums)
+        sentence = []
+
+        for num in nums:
+            if num == self.wtoi["<pad>"] or num == self.wtoi["<sos>"]: continue
+            if num == self.wtoi["<eos>"]: break
+
+            sentence.append(self.itow[num])
+
+        return sentence
+
+    def num_to_sentence_batch(self, nums_batch):
+        return [self.num_to_sentence(nums) for nums in nums_batch]
 
     def plot_sent_lengths(self):
         print(self.sent_lengths.value_counts())
@@ -178,21 +189,27 @@ class PheonixDataset():
 
         return aug
 
-    def save_XY(self, path, split):
+    def save_XY(self, path, split, augment_factor):
         X = np.array(self.features)
         y = np.array(self.targets)
-        np.save(os.path.join(path, "X_" + split), X)
-        np.save(os.path.join(path, "y_" + split), y)
+        idxs = list(range(y.shape[0]))
+        shuffle(idxs)
+
+        X = X[idxs]
+        y = y[idxs]
+        y = y.astype(np.int32)
+        np.save(os.path.join(path, "X_" + split + str(augment_factor)), X)
+        np.save(os.path.join(path, "y_" + split + str(augment_factor)), y)
 
 
 if __name__ == "__main__":
     with open("../vars/vocab.pkl", "rb") as f:
         vocab = pickle.load(f)
-    split = "test"
+    split = "train"
     aug_factor = 1
     dataset = PheonixDataset(vocab)
     dataset.generate_dataset(split=split, augment_factor=aug_factor)
-    dataset.save_XY("../vars/", split=split)
+    dataset.save_XY("../vars/", split=split, augment_factor=aug_factor)
 
     # sentences = load_sentences(save=True)
     # vocab = Vocab(sentences)
