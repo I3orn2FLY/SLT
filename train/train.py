@@ -11,7 +11,7 @@ from nltk.translate.bleu_score import corpus_bleu
 import warnings
 
 
-# TODO: Implement Beam Search and apply Bleu-Score for evaluation
+
 
 
 def init_weights(m):
@@ -69,6 +69,7 @@ def train(model, X_train, Y_train, X_val, y_val, X_test, Y_test, vocab, learning
           clip,
           load=True, save=False):
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    # optimizer = optim.SGD(model.parameters(), lr=learning_rate)
     device = model.device
     num_batches = X_train.shape[1] // batch_size
     if X_train.shape[1] % batch_size != 0: num_batches += 1
@@ -137,8 +138,8 @@ def train(model, X_train, Y_train, X_val, y_val, X_test, Y_test, vocab, learning
 
 
 if __name__ == "__main__":
-    X_train = np.load("../vars/X_train5.npy").transpose([1, 0, 2])
-    y_train = np.load("../vars/y_train5.npy").transpose()
+    X_train = np.load("../vars/X_train1.npy").transpose([1, 0, 2])
+    y_train = np.load("../vars/y_train1.npy").transpose()
 
     X_val = np.load("../vars/X_dev.npy").transpose([1, 0, 2])
     y_val = np.load("../vars/y_dev.npy").transpose()
@@ -154,8 +155,8 @@ if __name__ == "__main__":
     INPUT_DIM = 110
     OUTPUT_DIM = len(vocab.itow)
     DEC_EMB_DIM = 256
-    ENC_HID_DIM = 512
-    DEC_HID_DIM = 512
+    ENC_HID_DIM = 256
+    DEC_HID_DIM = 256
     ENC_DROPOUT = 0.5
     DEC_DROPOUT = 0.5
 
@@ -174,8 +175,8 @@ if __name__ == "__main__":
           vocab=vocab,
           learning_rate=0.001,
           criterion=criterion,
-          batch_size=32,
+          batch_size=1,
           n_epochs=100,
           clip=10,
-          load=True,
-          save=True)
+          load=False,
+          save=False)

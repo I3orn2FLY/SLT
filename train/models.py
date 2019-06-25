@@ -7,6 +7,7 @@ import numpy as np
 import pickle
 from data_processing import Vocab
 
+# TODO: Fix Beam Search, Try 4th model, Other Sequence Length
 
 class Encoder(nn.Module):
     def __init__(self, input_dim, enc_hid_dim, dec_hid_dim, dropout):

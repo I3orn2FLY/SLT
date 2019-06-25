@@ -20,6 +20,13 @@ class PoseEstimator():
         params["model_folder"] = os.path.join(OPENPOSE_FOLDER, "models")
         params["face"] = hand
         params["hand"] = face
+        params["scale_number"] = 4
+        params["hand_scale_number"] = 6
+        params["hand_scale_range"] = 0.4
+        params["scale_gap"] = 0.25
+        params["keypoint_scale"] = 3
+        params["num_gpu"] = 1
+        params["model_pose"] = "COCO"
         self.opWrapper = op.WrapperPython()
         self.opWrapper.configure(params)
         self.opWrapper.start()
