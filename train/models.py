@@ -7,6 +7,7 @@ import numpy as np
 import pickle
 from data_processing import Vocab
 
+
 # TODO: Fix Beam Search, Try 4th model, Other Sequence Length
 
 class Encoder(nn.Module):
@@ -200,9 +201,10 @@ class Seq2Seq(nn.Module):
         encoder_outputs, hidden = self.encoder(src)
 
         # first input to the decoder is the <sos> tokens
-        output = trg[0, :]
+
         # outputs[output]
         if beam_size == 1:
+            output = trg[0, :]
             for t in range(1, max_len):
                 output, hidden = self.decoder(output, hidden, encoder_outputs)
                 outputs[t] = output
@@ -212,22 +214,28 @@ class Seq2Seq(nn.Module):
         else:
 
             for sample_idx in range(batch_size):
+                start = torch.zeros(1, dtype=torch.long).to(self.device)
+
                 hidden_sample = hidden[sample_idx].unsqueeze(0)
                 encoder_sample = encoder_outputs[:, sample_idx, :].unsqueeze(1)
                 beams = torch.zeros(beam_size, max_len, dtype=torch.long).to(self.device)
-                beam_probs = torch.ones(beam_size)
+                output, hidden_sample = self.decoder(start, hidden_sample, encoder_sample)
+                topk = output.topk(beam_size, dim=1)
+                beams[:, 1] = topk[1].squeeze()
+                beam_probs = topk[0].squeeze()
+                hidden_beam = torch.stack([hidden_sample for i in range(beam_size)])
 
-                for t in range(1, max_len):
+                for t in range(2, max_len):
                     cands = torch.zeros(beam_size * beam_size).to(self.device)
                     cands_probs = torch.ones(beam_size * beam_size).to(self.device)
 
                     for beam_idx in range(beam_size):
                         last = beams[beam_idx, t - 1].unsqueeze(0)
-                        output, hidden_sample = self.decoder(last, hidden_sample, encoder_sample)
+                        output, hidden_beam[beam_idx] = self.decoder(last, hidden_beam[beam_idx], encoder_sample)
 
                         topk = output.topk(beam_size, dim=1)
-                        indices = topk[1]
-                        probs = topk[0]
+                        indices = topk[1].squeeze()
+                        probs = topk[0].squeeze()
 
                         start = beam_idx * beam_size
                         end = (beam_idx + 1) * beam_size
@@ -249,7 +257,7 @@ class Seq2Seq(nn.Module):
 
                 print("\rBeam Search Progress : %.2f" % (sample_idx / batch_size * 100), end=" ")
 
-            print()
+
 
         return outputs
 
