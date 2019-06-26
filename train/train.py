@@ -46,14 +46,14 @@ def get_bleu_score(trg, output, vocab):
         return corpus_bleu(references, hypotheses)
 
 
-def eval(model, src, trg, criterion, vocab):
+def eval(model, src, trg, criterion, vocab, beam_size):
     model.eval()
 
     with torch.no_grad():
         src = torch.Tensor(src).to(model.device)
         trg = torch.LongTensor(trg).to(model.device)
 
-        output = model(src, trg, 0, 1)
+        output = model(src, trg, 0, beam_size)
 
         bleu = get_bleu_score(trg, output, vocab)
 
@@ -116,13 +116,11 @@ def train(model, X_train, Y_train, X_val, y_val, X_test, Y_test, vocab, learning
         train_loss = train_loss / num_batches
         train_bleu = train_bleu / num_batches
 
-        val_loss, val_bleu = eval(model, X_val, y_val, criterion, vocab)
-        test_loss, test_bleu = eval(model, X_test, y_test, criterion, vocab)
+        val_loss, val_bleu = eval(model, X_val, y_val, criterion, vocab, beam_size=3)
+
+        test_loss, test_bleu = eval(model, X_test, y_test, criterion, vocab, beam_size=3)
 
         print("\rEpoch", epoch,
-              "Train Loss: ", train_loss,
-              "Val Loss: ", val_loss,
-              "Test Loss: ", test_loss,
               "Train Bleu: ", train_bleu,
               "Val Bleu:", val_bleu,
               "Test Bleu:", test_bleu)
@@ -154,9 +152,9 @@ if __name__ == "__main__":
 
     INPUT_DIM = 110
     OUTPUT_DIM = len(vocab.itow)
-    DEC_EMB_DIM = 256
-    ENC_HID_DIM = 256
-    DEC_HID_DIM = 256
+    DEC_EMB_DIM = 128
+    ENC_HID_DIM = 128
+    DEC_HID_DIM = 128
     ENC_DROPOUT = 0.5
     DEC_DROPOUT = 0.5
 
@@ -173,10 +171,10 @@ if __name__ == "__main__":
 
     train(model, X_train, y_train, X_val, y_val, X_test, y_test,
           vocab=vocab,
-          learning_rate=0.001,
+          learning_rate=0.0005,
           criterion=criterion,
-          batch_size=1,
+          batch_size=32,
           n_epochs=100,
-          clip=10,
-          load=False,
-          save=False)
+          clip=1,
+          load=True,
+          save=True)

@@ -137,8 +137,9 @@ class PheonixDataset():
                     if with_face:
                         face = pose_data['face'].squeeze()
                         pose = np.vstack((face, pose))
+                    low_conf = pose[:,2] <= 0
                     pose = pose[:, :2] / side
-
+                    pose = pose[low_conf] = [-1, -1]
                     pose = pose.reshape(-1)
 
                     pose_filename = os.path.split(pose_filename)[-1]
