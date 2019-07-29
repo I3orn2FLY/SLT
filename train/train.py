@@ -11,8 +11,11 @@ from nltk.translate.bleu_score import corpus_bleu
 import warnings
 
 
-
-
+# TODO
+#  1. Try Pheonix Bleu Score Done
+#  2. Try different sequence length
+#  3. Change fill sample
+#  4. New dataset
 
 def init_weights(m):
     for name, param in m.named_parameters():
@@ -68,7 +71,7 @@ def eval(model, src, trg, criterion, vocab, beam_size):
 def train(model, X_train, Y_train, X_val, y_val, X_test, Y_test, vocab, learning_rate, criterion, batch_size, n_epochs,
           clip,
           load=True, save=False):
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.SGD(model.parameters(), lr=learning_rate)
     # optimizer = optim.SGD(model.parameters(), lr=learning_rate)
     device = model.device
     num_batches = X_train.shape[1] // batch_size
@@ -136,8 +139,8 @@ def train(model, X_train, Y_train, X_val, y_val, X_test, Y_test, vocab, learning
 
 
 if __name__ == "__main__":
-    X_train = np.load("../vars/X_train1.npy").transpose([1, 0, 2])
-    y_train = np.load("../vars/y_train1.npy").transpose()
+    X_train = np.load("../vars/X_train5.npy").transpose([1, 0, 2])
+    y_train = np.load("../vars/y_train5.npy").transpose()
 
     X_val = np.load("../vars/X_dev.npy").transpose([1, 0, 2])
     y_val = np.load("../vars/y_dev.npy").transpose()
@@ -171,9 +174,9 @@ if __name__ == "__main__":
 
     train(model, X_train, y_train, X_val, y_val, X_test, y_test,
           vocab=vocab,
-          learning_rate=0.0005,
+          learning_rate=0.001,
           criterion=criterion,
-          batch_size=32,
+          batch_size=8,
           n_epochs=100,
           clip=1,
           load=True,

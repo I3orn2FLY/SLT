@@ -51,13 +51,13 @@ class PoseEstimator():
 
             body = body.squeeze()
 
-            lhand = pose_data['left_hand'].squeeze()
-            rhand = pose_data['right_hand'].squeeze()
-
-            pose = np.vstack((body, lhand, rhand))
-            face = pose_data['face'].squeeze()
-            pose = np.vstack((face, pose))
-
+            # lhand = pose_data['left_hand'].squeeze()
+            # rhand = pose_data['right_hand'].squeeze()
+            #
+            # pose = np.vstack((body, lhand, rhand))
+            # face = pose_data['face'].squeeze()
+            # pose = np.vstack((face, pose))
+            pose = body
             pose = pose[:, :2]
             if new:
                 pose *= np.array([210, 260])
