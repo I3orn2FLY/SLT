@@ -76,7 +76,7 @@ class Vocab:
             pickle.dump(self, f)
 
 
-def load_sentences(filename="../data/manual/PHOENIX-2014-T.train.corpus.csv", save=False):
+def get_sentences(filename="../data/manual/PHOENIX-2014-T.train.corpus.csv", save=False):
     df = pd.read_csv(filename, sep='|')
     spacy_de = spacy.load("de")
     sentences = []
@@ -89,33 +89,35 @@ def load_sentences(filename="../data/manual/PHOENIX-2014-T.train.corpus.csv", sa
     return sentences
 
 
-class PheonixDataset():
-    def __init__(self, vocab):
-        self.targets = []
-        self.features = []
+class PoseDataset():
+    def __init__(self, vocab, aug_factor, input_seq_length=100, output_seq_length=50):
+
         self.vocab = vocab
 
-    def generate_dataset(self, datapath="/home/kenny/Workspace/Data/SLT",
-                         side=227,
-                         with_face=False,
-                         split="train",
-                         input_seq_length=50,
-                         augment_factor=1,
-                         out_seq_length=50):
-        filename = datapath + "/manual/PHOENIX-2014-T." + split + ".corpus.csv"
+        self.augment_factor = aug_factor
+        self.input_seq_length = input_seq_length
+        self.output_seq_length = output_seq_length
 
-        df = pd.read_csv(filename, sep="|")
-        prefix = datapath + "/open_pose/fullFrame-" + str(side) + "x" + str(side) + "px/" + split + "/"
-        spacy_de = spacy.load("de")
+        self.spacy_de = spacy.load("de")
+
+    def generate_split(self, split, datapath, side, with_face):
+        anno_filename = datapath + "/manual/PHOENIX-2014-T." + split + ".corpus.csv"
+
+        df = pd.read_csv(anno_filename, sep="|")
+
+        image_path_prefix = datapath + "/open_pose/fullFrame-" + str(side) + "x" + str(side) + "px/" + split + "/"
+
+        X = []
+        y = []
 
         for idx in range(df.shape[0]):
             row = df.iloc[idx]
 
-            tokens = [tok.lower_ for tok in spacy_de.tokenizer(row.translation)]
-            nums = self.vocab.sentence_to_num(tokens, out_seq_length)
+            tokens = [tok.lower_ for tok in self.spacy_de.tokenizer(row.translation)]
+            nums = self.vocab.sentence_to_num(tokens, self.output_seq_length)
             if nums is None: continue
 
-            path = prefix + row.video
+            path = image_path_prefix + row.video
             path = path.replace("1/*.png", "*.pkl")
             video_pose = []
             frame_nums = []
@@ -137,9 +139,9 @@ class PheonixDataset():
                     if with_face:
                         face = pose_data['face'].squeeze()
                         pose = np.vstack((face, pose))
-                    low_conf = pose[:,2] <= 0
+                    low_conf = pose[:, 2] <= 0
                     pose = pose[:, :2] / side
-                    pose = pose[low_conf] = [-1, -1]
+                    pose[low_conf] = [-1, -1]
                     pose = pose.reshape(-1)
 
                     pose_filename = os.path.split(pose_filename)[-1]
@@ -150,47 +152,82 @@ class PheonixDataset():
 
             video_pose = np.array(video_pose)
 
-            aug_samples = PheonixDataset.augment_sample(video_pose, augment_factor, input_seq_length)
+            aug_samples = self.augment_sample(video_pose, split=split)
 
-            self.targets += len(aug_samples) * [nums]
-            self.features += aug_samples
+            X += aug_samples
+            y += len(aug_samples) * [nums]
 
             if idx % 10 == 0:
                 percent = idx / df.shape[0] * 100
                 print("\rProgress %.2f" % percent, end=" ")
 
         print()
-        print(len(self.targets))
 
-    @staticmethod
-    def augment_sample(sample, aug_factor, seq_length):
+        return np.array(X), np.array(y, dtype=np.int32)
+
+    def generate_dataset(self, datapath="/home/kenny/Workspace/Data/SLT",
+                         side=227, with_face=False,
+                         only_train=False, save=False):
+
+        args = {"datapath": datapath, "side": side, "with_face": with_face}
+        X_train, y_train = self.generate_split(split="train", **args)
+        if not only_train:
+            X_val, y_val = self.generate_split(split="dev", **args)
+            X_test, y_test = self.generate_split(split="test", **args)
+
+        if save:
+            save_path = "../vars/data/" + str(self.input_seq_length) + "to" + str(self.output_seq_length)
+            if not os.path.exists(save_path):
+                os.makedirs(save_path)
+
+            if not only_train:
+                np.save(save_path + "/X_test", X_test)
+                np.save(save_path + "/X_val", X_val)
+
+                np.save(save_path + "/y_test", y_test)
+                np.save(save_path + "/y_val", y_val)
+
+            save_path += "/AugFactor_" + str(self.augment_factor)
+            if not os.path.exists(save_path):
+                os.makedirs(save_path)
+            np.save(save_path + "/X_train", X_train)
+            np.save(save_path + "/y_train", y_train)
+
+            print("X Train_shape:", X_train.shape)
+            print("Y train shape:", y_train.shape)
+
+    def augment_sample(self, sample, split):
         aug = []
         L = len(sample)
+        # TODO augmentation of dev and test set
 
-        if (L < seq_length):
-            last_frame = sample[-1]
-            fill_frames = []
-            needed = seq_length - len(sample)
-            for i in range(needed):
-                fill_frames.append(last_frame.copy())
-
+        if (L < self.input_seq_length):
+            # TODO change filling sample
+            needed = self.input_seq_length - len(sample)
+            fill_frames = needed * [(-1) * np.ones(sample[0].shape)]
             fill_frames = np.array(fill_frames)
             aug.append(np.vstack((sample, fill_frames)))
 
         else:
-            step = L // seq_length
-            left_over = L % seq_length
+            if split == "train":
+                pass
+            step = L // self.input_seq_length
+            left_over = L % self.input_seq_length
             starting_idxs = list(range(step + left_over))
             shuffle(starting_idxs)
+
+            if split != "train":
+                starting_idxs = [0]
+
             for idx, start in enumerate(starting_idxs):
-                seq = [start + i * step for i in range(seq_length)]
+                seq = [start + i * step for i in range(self.input_seq_length)]
 
                 aug.append(sample[seq])
-                if aug_factor <= idx + 1: break
+                if self.augment_factor <= idx + 1: break
 
         return aug
 
-    def save_XY(self, path, split, augment_factor):
+    def save_XY(self, path, split, augment_factor, input_seq_length, out_seq_length):
         X = np.array(self.features)
         y = np.array(self.targets)
         idxs = list(range(y.shape[0]))
@@ -199,22 +236,20 @@ class PheonixDataset():
         X = X[idxs]
         y = y[idxs]
         y = y.astype(np.int32)
-        np.save(os.path.join(path, "X_" + split + str(augment_factor)), X)
+        np.save(os.path.join(path, "X_" + split + str(augment_factor) + "_[" + str(input_seq_length) + "to"), X)
         np.save(os.path.join(path, "y_" + split + str(augment_factor)), y)
 
 
 if __name__ == "__main__":
     with open("../vars/vocab.pkl", "rb") as f:
         vocab = pickle.load(f)
-    split = "train"
-    aug_factor = 1
-    dataset = PheonixDataset(vocab)
-    dataset.generate_dataset(split=split, augment_factor=aug_factor)
-    dataset.save_XY("../vars/", split=split, augment_factor=aug_factor)
 
-    # sentences = load_sentences(save=True)
+    dataset = PoseDataset(vocab, aug_factor=1, input_seq_length=100, output_seq_length=30)
+    dataset.generate_dataset(save=True)
+
+    # sentences = get_sentences(save=False)
     # vocab = Vocab(sentences)
-    #
+
     # vocab.build()
     # vocab.save_vocab()
     # print(len(vocab.word_count))

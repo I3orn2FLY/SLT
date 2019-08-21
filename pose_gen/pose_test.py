@@ -11,6 +11,15 @@ import cv2
 sys.path.append(os.path.join(OPENPOSE_FOLDER, "build/python"))
 from openpose import pyopenpose as op
 
+from imutils import paths
+import argparse
+import cv2
+
+
+def variance_of_laplacian(image):
+    # compute the Laplacian of the image and then return the focus
+    # measure, which is simply the variance of the Laplacian
+    return cv2.Laplacian(image, cv2.CV_64F).var()
 
 class PoseEstimator():
     def __init__(self, hand=True, face=True):
@@ -51,13 +60,13 @@ class PoseEstimator():
 
             body = body.squeeze()
 
-            # lhand = pose_data['left_hand'].squeeze()
-            # rhand = pose_data['right_hand'].squeeze()
-            #
-            # pose = np.vstack((body, lhand, rhand))
+            lhand = pose_data['left_hand'].squeeze()
+            rhand = pose_data['right_hand'].squeeze()
+
+            pose = np.vstack((body, lhand, rhand))
             # face = pose_data['face'].squeeze()
             # pose = np.vstack((face, pose))
-            pose = body
+            # pose = body
             pose = pose[:, :2]
             if new:
                 pose *= np.array([210, 260])
@@ -71,6 +80,8 @@ class PoseEstimator():
 
 if __name__ == "__main__":
     datapath = "/home/kenny/Workspace/Data/SLT/02December_2011_Friday_tagesschau-8010/"
+
+
     ls = glob.glob(datapath + "/*_pose.pkl")
     # ls = glob.glob(datapath + "/*.png")
     # pose_estim = PoseEstimator()
@@ -99,11 +110,13 @@ if __name__ == "__main__":
 
         if not PoseEstimator.image_with_pose(pose_file_old, img_old): continue
         if not PoseEstimator.image_with_pose(pose_file_new, img_new, new=True): continue
-
-        cv2.imshow("New with pose", cv2.resize(img_new, (0, 0), fx=2, fy=2))
+        gray = cv2.cvtColor(img_old_raw, cv2.COLOR_BGR2GRAY)
+        fm = variance_of_laplacian(gray)
+        # cv2.imshow("New with pose", cv2.resize(img_new, (0, 0), fx=2, fy=2))
         cv2.imshow("Old with pose", cv2.resize(img_old, (0, 0), fx=2, fy=2))
-        cv2.imshow("New without pose", cv2.resize(img_new_raw, (0, 0), fx=2, fy=2))
-        cv2.imshow("Old without pose", cv2.resize(img_old_raw, (0, 0), fx=2, fy=2))
+        print(fm)
+        # cv2.imshow("New without pose", cv2.resize(img_new_raw, (0, 0), fx=2, fy=2))
+        # cv2.imshow("Old without pose", cv2.resize(img_old_raw, (0, 0), fx=2, fy=2))
 
         if cv2.waitKey(0) == 27:
             break

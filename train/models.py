@@ -7,9 +7,6 @@ import numpy as np
 import pickle
 from data_processing import Vocab
 
-
-
-
 class Encoder(nn.Module):
     def __init__(self, input_dim, enc_hid_dim, dec_hid_dim, dropout):
         super().__init__()
@@ -175,7 +172,7 @@ class Decoder(nn.Module):
         return output, hidden.squeeze(0)
 
 
-class Seq2Seq(nn.Module):
+class Pose2Trans(nn.Module):
     def __init__(self, encoder, decoder, device):
         super().__init__()
 
@@ -284,7 +281,7 @@ if __name__ == "__main__":
     enc = Encoder(INPUT_DIM, ENC_HID_DIM, DEC_HID_DIM, ENC_DROPOUT)
     dec = Decoder(OUTPUT_DIM, DEC_EMB_DIM, ENC_HID_DIM, DEC_HID_DIM, DEC_DROPOUT, attn)
 
-    model = Seq2Seq(enc, dec, device).to(device)
+    model = Pose2Trans(enc, dec, device).to(device)
 
     inp = torch.Tensor(X).to(device)
     trg = torch.LongTensor(y).to(device)
