@@ -89,7 +89,7 @@ def get_sentences(filename="../data/manual/PHOENIX-2014-T.train.corpus.csv", sav
     return sentences
 
 
-class PoseDataset():
+class FeatureDataset():
     def __init__(self, vocab, aug_factor, input_seq_length=100, output_seq_length=50):
 
         self.vocab = vocab
@@ -101,11 +101,12 @@ class PoseDataset():
         self.spacy_de = spacy.load("de")
 
     def generate_split(self, split, datapath, side, with_face):
+        print("Generating", split, "split.")
         anno_filename = datapath + "/manual/PHOENIX-2014-T." + split + ".corpus.csv"
 
         df = pd.read_csv(anno_filename, sep="|")
 
-        image_path_prefix = datapath + "/open_pose/fullFrame-" + str(side) + "x" + str(side) + "px/" + split + "/"
+        image_path_prefix = datapath + "/resnet_feats/" + str(side) + "x" + str(side) + "/" + split + "/"
 
         X = []
         y = []
@@ -118,41 +119,14 @@ class PoseDataset():
             if nums is None: continue
 
             path = image_path_prefix + row.video
-            path = path.replace("1/*.png", "*.pkl")
-            video_pose = []
-            frame_nums = []
-            for pose_filename in glob.glob(path):
-                with open(pose_filename, 'rb') as f:
-                    pose_data = pickle.load(f)
+            path = path.replace("/1/*.png", ".npy")
 
-                    body_idxs = list(range(9)) + list(range(15, 19))
-                    body = pose_data['body']
 
-                    if body.shape[0] > 1 or body.shape[0] < 1:
-                        continue
 
-                    body = body.squeeze()[body_idxs]
-                    lhand = pose_data['left_hand'].squeeze()
-                    rhand = pose_data['right_hand'].squeeze()
+            video_feats = np.load(path)
 
-                    pose = np.vstack((body, lhand, rhand))
-                    if with_face:
-                        face = pose_data['face'].squeeze()
-                        pose = np.vstack((face, pose))
-                    low_conf = pose[:, 2] <= 0
-                    pose = pose[:, :2] / side
-                    pose[low_conf] = [-1, -1]
-                    pose = pose.reshape(-1)
+            aug_samples = self.augment_sample(video_feats, split=split)
 
-                    pose_filename = os.path.split(pose_filename)[-1]
-                    frame_n = int(re.findall(r'([0-9]+)', pose_filename)[-1])
-
-                    video_pose.append(pose)
-                    frame_nums.append(frame_n)
-
-            video_pose = np.array(video_pose)
-
-            aug_samples = self.augment_sample(video_pose, split=split)
 
             X += aug_samples
             y += len(aug_samples) * [nums]
@@ -166,7 +140,7 @@ class PoseDataset():
         return np.array(X), np.array(y, dtype=np.int32)
 
     def generate_dataset(self, datapath="/home/kenny/Workspace/Data/SLT",
-                         side=227, with_face=False,
+                         side=224, with_face=False,
                          only_train=False, save=False):
 
         args = {"datapath": datapath, "side": side, "with_face": with_face}
@@ -176,7 +150,7 @@ class PoseDataset():
             X_test, y_test = self.generate_split(split="test", **args)
 
         if save:
-            save_path = "../vars/data/" + str(self.input_seq_length) + "to" + str(self.output_seq_length)
+            save_path = "../vars/data/conv_feats/" + str(self.input_seq_length) + "to" + str(self.output_seq_length)
             if not os.path.exists(save_path):
                 os.makedirs(save_path)
 
@@ -209,8 +183,6 @@ class PoseDataset():
             aug.append(np.vstack((sample, fill_frames)))
 
         else:
-            if split == "train":
-                pass
             step = L // self.input_seq_length
             left_over = L % self.input_seq_length
             starting_idxs = list(range(step + left_over))
@@ -244,7 +216,7 @@ if __name__ == "__main__":
     with open("../vars/vocab.pkl", "rb") as f:
         vocab = pickle.load(f)
 
-    dataset = PoseDataset(vocab, aug_factor=1, input_seq_length=100, output_seq_length=30)
+    dataset = FeatureDataset(vocab, aug_factor=1, input_seq_length=100, output_seq_length=30)
     dataset.generate_dataset(save=True)
 
     # sentences = get_sentences(save=False)
