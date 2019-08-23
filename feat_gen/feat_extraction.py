@@ -1,106 +1,84 @@
 from config import PHEONIX_FOLDER, OPENPOSE_FOLDER
+import pandas as pd
 import os
-import sys
 import glob
 import numpy as np
-import pickle
-# You need to import cv2 first
+import os
+import torch
+import torch.nn as nn
+from torchvision import models
+from torchvision import transforms
 import cv2
-
-sys.path.append(os.path.join(OPENPOSE_FOLDER, "build/python"))
-from openpose import pyopenpose as op
 
 pose_data_folder = os.path.join(PHEONIX_FOLDER, "open_pose")
 images_folder = os.path.join(PHEONIX_FOLDER, "features")
 
 
-class PoseEstimator():
-    def __init__(self, hand=True, face=True):
-        params = dict()
-        params["model_folder"] = os.path.join(OPENPOSE_FOLDER, "models")
-        params["face"] = hand
-        params["hand"] = face
-        params["scale_number"] = 4
-        params["hand_scale_number"] = 6
-        params["hand_scale_range"] = 0.4
-        params["scale_gap"] = 0.25
-        params["keypoint_scale"] = 3
-        params["num_gpu"] = 1
-        params["model_pose"] = "COCO"
-        self.opWrapper = op.WrapperPython()
-        self.opWrapper.configure(params)
-        self.opWrapper.start()
+class Identity(nn.Module):
+    def __init__(self):
+        super(Identity, self).__init__()
 
-    def estimate_pose(self, filename):
-        datum = op.Datum()
-        imageToProcess = cv2.imread(filename)
-        if not isinstance(imageToProcess, np.ndarray):
-            return None
-        datum.cvInputData = imageToProcess
-        self.opWrapper.emplaceAndPop([datum])
-
-        return datum
+    def forward(self, x):
+        return x
 
 
-def create_folders(image_files):
-    for idx, filename in enumerate(image_files):
-        filename = os.path.join(pose_data_folder, filename)
-        path = os.path.split(filename)[0]
-        if not os.path.exists(path):
-            os.makedirs(path)
-
-        if idx % 10000 == 0:
-            print("\r %d" % idx, end=" ")
+def get_num_from_path(x):
+    return int(x.split("/")[-1].split(".")[0][-4:])
 
 
-def create_image_files():
-    ls = glob.iglob(images_folder + "/**/*.*", recursive=True)
-    with open('images_file.txt', 'w') as f:
-        for idx, filename in enumerate(ls):
-            shortened_name = filename.split("features/")[1]
-            f.write(shortened_name + "\n")
+class FeatureExtractor():
 
-    with open('current_idx.txt', 'w') as f:
-        f.write(str(-1))
+    def __init__(self):
+        self.normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                              std=[0.229, 0.224, 0.225])
+
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+        self.model = models.resnet50(pretrained=True)
+        self.model.fc = Identity()
+        self.model = self.model.to(self.device)
+        self.model.eval()
+
+    def get_features(self, video_path, side=224):
+        ls = sorted(list(glob.glob(video_path)), key=lambda x: get_num_from_path(x))
+        imgs = []
+        with torch.no_grad():
+            for img_path in ls:
+                img = cv2.resize(cv2.imread(img_path), (side, side))
+                img = img.transpose([2, 0, 1]) / 225
+                imgs.append(self.normalize(torch.Tensor(img)))
+
+            inp = torch.stack(imgs).to(self.device)
+            feats = self.model(inp).detach().cpu().numpy()
+
+            return feats
+
+
+def generate_split_data(feat_extractor, split="train", side=224,
+                        out_data_path="/home/kenny/Workspace/Data/SLT/resnet_feats/"):
+
+    out_data_path += str(side) + "x" + str(side) + "/"
+    df = pd.read_csv(PHEONIX_FOLDER + "/annotations/manual/PHOENIX-2014-T." + split + ".corpus.csv", sep='|')
+    print("Generating", split, "split features.")
+    L = len(df)
+    for idx, video_path in enumerate(df.video):
+        video_path = PHEONIX_FOLDER + "/features/fullFrame-210x260px/" + split + "/" + video_path.replace("/1/", "/")
+
+        feats = feat_extractor.get_features(video_path)
+
+        feat_path = video_path.replace(PHEONIX_FOLDER + "/features/fullFrame-210x260px/", out_data_path)
+        feat_path = os.path.split(feat_path)[0]
+        if not os.path.exists(os.path.split(feat_path)[0]):
+            os.makedirs(feat_path)
+        np.save(feat_path, feats)
+
+        percent = idx / (L - 1) * 100
+        print("\rProgress %.2f" % percent, end=" ")
+
+    print()
 
 
 if __name__ == "__main__":
-
-    folders_created = True
-    image_files_created = True
-
-    if not image_files_created: create_image_files()
-
-    with open('image_files.txt', 'r') as f:
-        image_files = [x.strip() for x in f.readlines()]
-
-    if not folders_created: create_folders(image_files)
-
-    L = len(image_files)
-
-    with open('current_idx.txt', 'r') as f:
-        cur_idx = int(f.readline())
-
-    pose_estim = PoseEstimator()
-
-    for idx, filename in enumerate(image_files[cur_idx + 1:]):
-        idx = idx + cur_idx + 1
-        image_filename = os.path.join(images_folder, filename)
-        pose_filename = os.path.splitext(os.path.join(pose_data_folder, filename))[0] + "_pose.pkl"
-        datum = pose_estim.estimate_pose(image_filename)
-        if datum is None: continue
-        with open(pose_filename, 'wb') as f:
-            pose_data = {"body": datum.poseKeypoints,
-                         "face": datum.faceKeypoints,
-                         "left_hand": datum.handKeypoints[0],
-                         "right_hand": datum.handKeypoints[1]}
-
-            pickle.dump(pose_data, f)
-
-        if idx % 100 == 0:
-            with open('current_idx.txt', 'w') as f:
-                f.write(str(idx))
-
-            print("\r %.2f" % (idx * 100 / L), end=" ")
-
-    print()
+    feat_extractor = FeatureExtractor()
+    generate_split_data(feat_extractor, split="test")
+    generate_split_data(feat_extractor, split="dev")
